@@ -15,6 +15,22 @@ public class Cell : MonoBehaviour
     public CellType type;
     public Vector2 pos;
     public List<Generator.Directions> availableDirections = new List<Generator.Directions>();
+    
+    private int number;
+    private Text text;
+
+    public int Number { get => number; 
+        set
+        {
+            number = value;
+            text.text = value.ToString();
+        }
+    }
+
+    private void Awake()
+    {
+        text = GetComponentInChildren<Text>();
+    }
 
     private void Start()
     {
