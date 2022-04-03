@@ -87,6 +87,7 @@ public class Generator : MonoBehaviour
             int dirConection = Random.Range(0, dirAv - 1);
             Debug.Log("Dirección seleccionada para la primera sala: " + dirConection);
             Directions dir = cell.availableDirections[dirConection];
+            cell.ShowDoor(dir);
             cell.availableDirections.Remove(dir);
             Debug.Log("Dirección seleccionada para la primera sala: " + dir.ToString());
 
@@ -103,18 +104,22 @@ public class Generator : MonoBehaviour
                 case Directions.Left:
                     newY = (int)cell.pos.y;
                     newX = (int)cell.pos.x - dist;
+                    cells[newY][newX].ShowDoor(Directions.Right);
                     break;
                 case Directions.Down:
                     newY = (int)cell.pos.y + dist;
                     newX = (int)cell.pos.x;
+                    cells[newY][newX].ShowDoor(Directions.Up);
                     break;
                 case Directions.Right:
                     newY = (int)cell.pos.y;
                     newX = (int)cell.pos.x + dist;
+                    cells[newY][newX].ShowDoor(Directions.Left);
                     break;
                 case Directions.Up:
                     newY = (int)cell.pos.y - dist;
                     newX = (int)cell.pos.x;
+                    cells[newY][newX].ShowDoor(Directions.Down);
                     break;
             }
             Debug.Log("Distancia respecto a la primera sala: " + dist);
