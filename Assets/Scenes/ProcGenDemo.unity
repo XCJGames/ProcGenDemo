@@ -529,6 +529,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   numRooms: 10
+  drawingInterval: 0.5
+  adjacentRoomsConnectionPercentage: 0.5
   baseCell: {fileID: 7003614203872584666, guid: fada3f16537a6824c95aa6abd6e8a7d2, type: 3}
   room: {fileID: 21300000, guid: e6f354ae009d7a54fbc94a8872d76192, type: 3}
   corridor: {fileID: 21300000, guid: c534e633e47fd9b46aac80adfa306f43, type: 3}
+  roomsWithAvailableDirections: []

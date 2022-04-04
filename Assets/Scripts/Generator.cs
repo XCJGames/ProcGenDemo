@@ -12,15 +12,17 @@ public class Generator : MonoBehaviour
 
     [SerializeField] private int numRooms = 10;
     [SerializeField] private float drawingInterval = 0.5f;
+    [SerializeField] private float adjacentRoomsConnectionPercentage = 0.5f;
 
     [SerializeField] private Cell baseCell;
     [SerializeField] private Sprite room;
     [SerializeField] private Sprite corridor;
 
+    private bool finished = false;
     private int dimension, createdRooms = 0;
     private float timer = 0.5f;
     private List<List<Cell>> cells;
-    private List<Cell> roomsWithAvailableDirections = new List<Cell>();
+    [SerializeField] private List<Cell> roomsWithAvailableDirections = new List<Cell>();
     private Queue<Cell> roomsQueue = new Queue<Cell>();
 
     void Start()
@@ -49,20 +51,56 @@ public class Generator : MonoBehaviour
         cells[(int)ini.y][(int)ini.x].GetComponent<Image>().sprite = room;
         cells[(int)ini.y][(int)ini.x].type = Cell.CellType.Room;
         cells[(int)ini.y][(int)ini.x].Number = 0;
+        roomsWithAvailableDirections.Add(cells[(int)ini.y][(int)ini.x]);
         RemoveNeighbourConnections(cells[(int)ini.y][(int)ini.x]);
         roomsQueue.Enqueue(cells[(int)ini.y][(int)ini.x]);
     }
 
     void Update()
     {
-        if (createdRooms < numRooms && roomsQueue.Count > 0)
+        if (createdRooms < numRooms)
         {
             timer -= Time.deltaTime;
             if(timer < 0)
             {
-                Cell cell = roomsQueue.Dequeue();
-                CreateRoom(cell);
+                // Si la cola está vacía pero quedan salas por poner, cogemos una aleatoria
+                // con al menos una conexión posible y forzamos a que escoja una dirección
+                if(roomsQueue.Count == 0)
+                {
+                    var randomRoom = Random.Range(0, roomsWithAvailableDirections.Count);
+                    roomsQueue.Enqueue(
+                        roomsWithAvailableDirections[randomRoom]);
+                    Cell cell = roomsQueue.Dequeue();
+                    CreateRoom(cell, 1);
+                }
+                // Si es la primera generación a partir de la sala inicial, forzamos 2 caminos
+                else if(createdRooms == 0)
+                {
+                    Cell cell = roomsQueue.Dequeue();
+                    CreateRoom(cell, 2);
+                }
+                // Si no, ponemos como mínimo 0 para que pueda hacer caminos sin ampliar
+                else
+                {
+                    Cell cell = roomsQueue.Dequeue();
+                    CreateRoom(cell, 0);
+                }
                 timer = drawingInterval;
+            }
+        }
+        else if(!finished)
+        {
+            // Una vez colocadas todas las salas, recorremos las que tengan direcciones
+            // disponibles y comprobamos si se pueden unir con otras mediante pasillos
+            finished = true;
+            Cell[] rooms = new Cell[roomsWithAvailableDirections.Count];
+            roomsWithAvailableDirections.CopyTo(rooms);
+            foreach(var room in rooms)
+            {
+                if (roomsWithAvailableDirections.Contains(room))
+                {
+                    CheckForAdditionalConnections(room);
+                }
             }
         }
     }
@@ -70,27 +108,23 @@ public class Generator : MonoBehaviour
     /// Crea habitaciones respecto a la celda pasada por parámetro.
     /// </summary>
     /// <param name="cell"></param>
-    void CreateRoom(Cell cell)
+    void CreateRoom(Cell cell, int minConnections)
     {
         /* Genera la cantidad de salas conectadas que va a tener según el número de lados
          * disponibles para conexión que tenga
          */
-        int dirAv = cell.availableDirections.Count;
-        int nSalasConectadas = Random.Range(1, dirAv);
-        Debug.Log("Número salas conectadas: " + nSalasConectadas);
+        int nSalasConectadas = Random.Range(minConnections, cell.availableDirections.Count);
         for (int i = 0; i < nSalasConectadas && createdRooms < numRooms; ++i)
         {
             /* Se generan todas las salas, una a una. Se establece por qué lado va a ser la conexión
              * (de forma aleatoria) y se bloquea esa dirección, para que no se pueda hacer ninguna más
              * por ese lado de la sala. Si se llega al mínimo de salas necesarias, se termina la generación
              */
-            int dirConection = Random.Range(0, dirAv - 1);
-            Debug.Log("Dirección seleccionada para la primera sala: " + dirConection);
+            int dirConection = Random.Range(0, cell.availableDirections.Count - 1);
             Directions dir = cell.availableDirections[dirConection];
             cell.ShowDoor(dir);
             cell.availableDirections.Remove(dir);
-            Debug.Log("Dirección seleccionada para la primera sala: " + dir.ToString());
-
+            CheckAvailableDirections(cell);
 
             /* Se genera la distacia a la que se coloca la nueva habitación. Teniendo en cuenta hasta cuál 
              * es la distancia máxima posible.
@@ -122,7 +156,6 @@ public class Generator : MonoBehaviour
                     cells[newY][newX].ShowDoor(Directions.Down);
                     break;
             }
-            Debug.Log("Distancia respecto a la primera sala: " + dist);
 
 
             // Pinta y establece la habitación, y la mete en la cola de habitaciones.
@@ -131,46 +164,169 @@ public class Generator : MonoBehaviour
             cells[newY][newX].type = Cell.CellType.Room;
             createdRooms++;
             cells[newY][newX].Number = createdRooms;
+            if(cells[newY][newX].availableDirections.Count > 0)
+            {
+                roomsWithAvailableDirections.Add(cells[newY][newX]);
+            }
+            CheckNeighbourRoomsForConnections(cells[newY][newX]);
             RemoveNeighbourConnections(cells[newY][newX]);
             roomsQueue.Enqueue(cells[newY][newX]);
 
             // Pinta y establece pasillos además de bloquear todas sus conexiones.
-            // También elimina las conexiones de las salas adyacentes.
-            if (cell.pos.y == newY) //Pasillos en horizontal
-            {
-                for (int j = 1; j < dist; ++j)
-                {
-                    int increase = j;
-                    if (dir == Directions.Left)
-                        increase *= -1;
+            BuildCorridor(cell.pos, dist, dir);
+        }
+    }
 
-                    cells[(int)cell.pos.y][(int)cell.pos.x + increase].GetComponent<Image>().sprite = corridor;
-                    cells[(int)cell.pos.y][(int)cell.pos.x + increase].transform.Rotate(0, 0, 90);
-                    cells[(int)cell.pos.y][(int)cell.pos.x + increase].type = Cell.CellType.Corridor;
-                    cells[(int)cell.pos.y][(int)cell.pos.x + increase].availableDirections.Clear();
-                    RemoveNeighbourConnections(cells[(int)cell.pos.y][(int)cell.pos.x + increase]);
-                }
-            }
-            else if (cell.pos.x == newX) //Pasillos en vertical
+    /// <summary>
+    /// Pinta y establece pasillos además de bloquear todas sus conexiones.
+    /// Actualiza las conexiones disponibles de las casillas adyacentes.
+    /// </summary>
+    /// <param name="origin">Casilla de origen</param>
+    /// <param name="distance">Número de pasillos</param>
+    /// <param name="dir">Dirección en la que construir los pasillos</param>
+    private void BuildCorridor(Vector2 origin, float distance, Directions dir)
+    {
+        for (int j = 1; j < distance; ++j)
+        {
+            int increase = j;
+            Vector2 newPos;
+            if (dir == Directions.Left || dir == Directions.Up)
+                increase *= -1;
+            if(dir == Directions.Up || dir == Directions.Down)
             {
-                for (int j = 1; j < dist; ++j)
+                newPos = new Vector2(origin.x, origin.y + increase);
+            }
+            else
+            {
+                newPos = new Vector2(origin.x + increase, origin.y);
+                cells[(int)newPos.y][(int)newPos.x].transform.Rotate(0, 0, 90);
+            }
+            cells[(int)newPos.y][(int)newPos.x].GetComponent<Image>().sprite = corridor;
+            cells[(int)newPos.y][(int)newPos.x].type = Cell.CellType.Corridor;
+            cells[(int)newPos.y][(int)newPos.x].availableDirections.Clear();
+            RemoveNeighbourConnections(cells[(int)newPos.y][(int)newPos.x]);
+        }
+    }
+
+    /// <summary>
+    /// Comprueba las casillas adyacentes y, si son salas, decide aleatoriamente
+    /// si las une o no
+    /// </summary>
+    /// <param name="cell">Casilla desde la que se comprueban las adyacentes</param>
+    private void CheckNeighbourRoomsForConnections(Cell cell)
+    {
+        if (cell.pos.x > 0 &&
+            cells[(int)cell.pos.y][(int)cell.pos.x - 1].type == Cell.CellType.Room)
+        {
+            if(Random.Range(0f, 1f) < adjacentRoomsConnectionPercentage)
+            {
+                cell.ShowDoor(Directions.Left);
+                cells[(int)cell.pos.y][(int)cell.pos.x - 1].ShowDoor(Directions.Right);
+            }
+        }
+        if (cell.pos.x < dimension - 1 &&
+            cells[(int)cell.pos.y][(int)cell.pos.x + 1].type == Cell.CellType.Room)
+        {
+            if (Random.Range(0f, 1f) < adjacentRoomsConnectionPercentage)
+            {
+                cell.ShowDoor(Directions.Right);
+                cells[(int)cell.pos.y][(int)cell.pos.x + 1].ShowDoor(Directions.Left);
+            }
+        }
+        if (cell.pos.y > 0 &&
+            cells[(int)cell.pos.y - 1][(int)cell.pos.x].type == Cell.CellType.Room)
+        {
+            if (Random.Range(0f, 1f) < adjacentRoomsConnectionPercentage)
+            {
+                cell.ShowDoor(Directions.Up);
+                cells[(int)cell.pos.y - 1][(int)cell.pos.x].ShowDoor(Directions.Down);
+            }
+        }
+        if (cell.pos.y < dimension - 1 &&
+            cells[(int)cell.pos.y + 1][(int)cell.pos.x].type == Cell.CellType.Room)
+        {
+            if (Random.Range(0f, 1f) < adjacentRoomsConnectionPercentage)
+            {
+                cell.ShowDoor(Directions.Down);
+                cells[(int)cell.pos.y + 1][(int)cell.pos.x].ShowDoor(Directions.Up);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Comprueba en todas las direcciones disponibles si la sala se puede unir
+    /// con otra mediante pasillos adicionales.
+    /// </summary>
+    /// <param name="cell">Casilla desde la que se comprueba</param>
+    private void CheckForAdditionalConnections(Cell cell)
+    {
+        Directions[] dirs = new Directions[cell.availableDirections.Count];
+        cell.availableDirections.CopyTo(dirs);
+        //List<Directions> availableDirections = cell.availableDirections;
+        foreach(var dir in dirs)
+        {
+            if (cell.availableDirections.Contains(dir))
+            {
+                int maxDist = GetMaxDistanceFromCellInDirection(cell.pos, dir) + 1;
+                if(maxDist > 0)
                 {
-                    int increase = j;
-                    if (dir == Directions.Up)
-                        increase *= -1;
-                    cells[(int)cell.pos.y + increase][(int)cell.pos.x].GetComponent<Image>().sprite = corridor;
-                    cells[(int)cell.pos.y + increase][(int)cell.pos.x].type = Cell.CellType.Corridor;
-                    cells[(int)cell.pos.y + increase][(int)cell.pos.x].availableDirections.Clear();
-                    RemoveNeighbourConnections(cells[(int)cell.pos.y + increase][(int)cell.pos.x]);
+                    Vector2 newPos = Vector2.zero;
+                    switch (dir)
+                    {
+                        case Directions.Up:
+                            newPos.x = cell.pos.x;
+                            newPos.y = cell.pos.y - maxDist;
+                            break;
+                        case Directions.Right:
+                            newPos.x = cell.pos.x + maxDist;
+                            newPos.y = cell.pos.y;
+                            break;
+                        case Directions.Down:
+                            newPos.x = cell.pos.x;
+                            newPos.y = cell.pos.y + maxDist;
+                            break;
+                        case Directions.Left:
+                            newPos.x = cell.pos.x - maxDist;
+                            newPos.y = cell.pos.y;
+                            break;
+                    }
+                    if(ValidPosition(newPos) && 
+                        cells[(int)newPos.y][(int)newPos.x].type == Cell.CellType.Room &&
+                        Random.Range(0f, 1f) < adjacentRoomsConnectionPercentage)
+                    {
+                        BuildCorridor(cell.pos, maxDist, dir);
+                        cell.ShowDoor(dir);
+                        cells[(int)newPos.y][(int)newPos.x].ShowOppositeDoor(dir);
+                    }
+
                 }
             }
         }
     }
 
-    //Habitación aleatoriamente asignada a otra
-    void CreateRandomRoom()
+    /// <summary>
+    /// Comprueba si la posición es válida dentro de las dimensiones del tablero
+    /// </summary>
+    /// <param name="pos">Posición a comprobar</param>
+    /// <returns>True si es una posición válida, false en caso contrario</returns>
+    private bool ValidPosition(Vector2 pos)
     {
+        return pos.x >= 0 && pos.x < dimension &&
+            pos.y >= 0 && pos.y < dimension;
+    }
 
+    /// <summary>
+    /// Comprueba si la sala tiene conexiones disponibles y, si no las tiene,
+    /// elimina la sala de la lista de salas con conexiones disponibles.
+    /// </summary>
+    /// <param name="cell"></param>
+    private void CheckAvailableDirections(Cell cell)
+    {
+        if (cell.availableDirections.Count == 0 &&
+                roomsWithAvailableDirections.Contains(cell))
+        {
+            roomsWithAvailableDirections.Remove(cell);
+        }
     }
 
     /// <summary>
@@ -201,8 +357,7 @@ public class Generator : MonoBehaviour
                 break;
         }
         auxPos += increment;
-        while (auxPos.x >= 0 && auxPos.x < dimension && 
-            auxPos.y >= 0 && auxPos.y < dimension &&
+        while (ValidPosition(auxPos) &&
             cells[(int)auxPos.y][(int)auxPos.x].type == Cell.CellType.Empty)
         {
             auxPos += increment;
@@ -220,18 +375,22 @@ public class Generator : MonoBehaviour
         if(cell.pos.x > 0)
         {
             cells[(int)cell.pos.y][(int)cell.pos.x - 1].availableDirections.Remove(Directions.Right);
+            CheckAvailableDirections(cells[(int)cell.pos.y][(int)cell.pos.x - 1]);
         }
         if(cell.pos.x < dimension - 1)
         {
             cells[(int)cell.pos.y][(int)cell.pos.x + 1].availableDirections.Remove(Directions.Left);
+            CheckAvailableDirections(cells[(int)cell.pos.y][(int)cell.pos.x + 1]);
         }
         if (cell.pos.y > 0)
         {
             cells[(int)cell.pos.y - 1][(int)cell.pos.x].availableDirections.Remove(Directions.Down);
+            CheckAvailableDirections(cells[(int)cell.pos.y - 1][(int)cell.pos.x]);
         }
         if (cell.pos.y < dimension - 1)
         {
             cells[(int)cell.pos.y + 1][(int)cell.pos.x].availableDirections.Remove(Directions.Up);
+            CheckAvailableDirections(cells[(int)cell.pos.y + 1][(int)cell.pos.x]);
         }
     }
 }

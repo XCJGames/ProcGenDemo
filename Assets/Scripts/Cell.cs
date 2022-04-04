@@ -48,6 +48,25 @@ public class Cell : MonoBehaviour
         }
     }
 
+    public void ShowOppositeDoor(Generator.Directions dir)
+    {
+        switch (dir)
+        {
+            case Generator.Directions.Up:
+                doors[2].gameObject.SetActive(true);
+                break;
+            case Generator.Directions.Right:
+                doors[3].gameObject.SetActive(true);
+                break;
+            case Generator.Directions.Down:
+                doors[0].gameObject.SetActive(true);
+                break;
+            case Generator.Directions.Left:
+                doors[1].gameObject.SetActive(true);
+                break;
+        }
+    }
+
     private void Awake()
     {
         text = GetComponentInChildren<Text>();
