@@ -63,6 +63,7 @@ public class Generator : MonoBehaviour
             timer -= Time.deltaTime;
             if(timer < 0)
             {
+                bool created = false;
                 // Si la cola está vacía pero quedan salas por poner, cogemos una aleatoria
                 // con al menos una conexión posible y forzamos a que escoja una dirección
                 if(roomsQueue.Count == 0)
@@ -71,21 +72,24 @@ public class Generator : MonoBehaviour
                     roomsQueue.Enqueue(
                         roomsWithAvailableDirections[randomRoom]);
                     Cell cell = roomsQueue.Dequeue();
-                    CreateRoom(cell, 1);
+                    created = CreateRoom(cell, 1);
                 }
                 // Si es la primera generación a partir de la sala inicial, forzamos 2 caminos
                 else if(createdRooms == 0)
                 {
                     Cell cell = roomsQueue.Dequeue();
-                    CreateRoom(cell, 2);
+                    created = CreateRoom(cell, 2);
                 }
                 // Si no, ponemos como mínimo 0 para que pueda hacer caminos sin ampliar
                 else
                 {
                     Cell cell = roomsQueue.Dequeue();
-                    CreateRoom(cell, 0);
+                    created = CreateRoom(cell, 0);
                 }
-                timer = drawingInterval;
+                if (created)
+                {
+                    timer = drawingInterval;
+                }
             }
         }
         else if(!finished)
@@ -108,73 +112,131 @@ public class Generator : MonoBehaviour
     /// Crea habitaciones respecto a la celda pasada por parámetro.
     /// </summary>
     /// <param name="cell"></param>
-    void CreateRoom(Cell cell, int minConnections)
+    private bool CreateRoom(Cell cell, int minConnections)
     {
         /* Genera la cantidad de salas conectadas que va a tener según el número de lados
          * disponibles para conexión que tenga
          */
+        bool created = false;
         int nSalasConectadas = Random.Range(minConnections, cell.availableDirections.Count);
         for (int i = 0; i < nSalasConectadas && createdRooms < numRooms; ++i)
         {
-            /* Se generan todas las salas, una a una. Se establece por qué lado va a ser la conexión
-             * (de forma aleatoria) y se bloquea esa dirección, para que no se pueda hacer ninguna más
-             * por ese lado de la sala. Si se llega al mínimo de salas necesarias, se termina la generación
-             */
-            int dirConection = Random.Range(0, cell.availableDirections.Count - 1);
-            Directions dir = cell.availableDirections[dirConection];
-            cell.ShowDoor(dir);
-            cell.availableDirections.Remove(dir);
-            CheckAvailableDirections(cell);
-
-            /* Se genera la distacia a la que se coloca la nueva habitación. Teniendo en cuenta hasta cuál 
-             * es la distancia máxima posible.
-             */
-            int dist, maxDist;
-            int newY = 0, newX = 0;
-            maxDist = GetMaxDistanceFromCellInDirection(new Vector2(cell.pos.x, cell.pos.y), dir);
-            dist = Random.Range(1, maxDist);
-            switch (dir)
+            if(cell.availableDirections.Count > 0)
             {
-                case Directions.Left:
-                    newY = (int)cell.pos.y;
-                    newX = (int)cell.pos.x - dist;
-                    cells[newY][newX].ShowDoor(Directions.Right);
-                    break;
-                case Directions.Down:
-                    newY = (int)cell.pos.y + dist;
-                    newX = (int)cell.pos.x;
-                    cells[newY][newX].ShowDoor(Directions.Up);
-                    break;
-                case Directions.Right:
-                    newY = (int)cell.pos.y;
-                    newX = (int)cell.pos.x + dist;
-                    cells[newY][newX].ShowDoor(Directions.Left);
-                    break;
-                case Directions.Up:
-                    newY = (int)cell.pos.y - dist;
-                    newX = (int)cell.pos.x;
-                    cells[newY][newX].ShowDoor(Directions.Down);
-                    break;
+                /* Se generan todas las salas, una a una. Se establece por qué lado va a ser la conexión
+                 * (de forma aleatoria) y se bloquea esa dirección, para que no se pueda hacer ninguna más
+                 * por ese lado de la sala. Si se llega al mínimo de salas necesarias, se termina la generación
+                 */
+                int dirConnection = GetRandomDirectionWithWeighting(cell);
+                Directions dir = cell.availableDirections[dirConnection];
+                cell.ShowDoor(dir);
+                cell.availableDirections.Remove(dir);
+                CheckAvailableDirections(cell);
+
+                /* Se genera la distacia a la que se coloca la nueva habitación. Teniendo en cuenta hasta cuál 
+                 * es la distancia máxima posible.
+                 */
+                int dist, maxDist;
+                int newY = 0, newX = 0;
+                maxDist = GetMaxDistanceFromCellInDirection(new Vector2(cell.pos.x, cell.pos.y), dir);
+                dist = GetRandomDistanceWithWeighting(maxDist);
+                switch (dir)
+                {
+                    case Directions.Left:
+                        newY = (int)cell.pos.y;
+                        newX = (int)cell.pos.x - dist;
+                        cells[newY][newX].ShowDoor(Directions.Right);
+                        break;
+                    case Directions.Down:
+                        newY = (int)cell.pos.y + dist;
+                        newX = (int)cell.pos.x;
+                        cells[newY][newX].ShowDoor(Directions.Up);
+                        break;
+                    case Directions.Right:
+                        newY = (int)cell.pos.y;
+                        newX = (int)cell.pos.x + dist;
+                        cells[newY][newX].ShowDoor(Directions.Left);
+                        break;
+                    case Directions.Up:
+                        newY = (int)cell.pos.y - dist;
+                        newX = (int)cell.pos.x;
+                        cells[newY][newX].ShowDoor(Directions.Down);
+                        break;
+                }
+
+
+                // Pinta y establece la habitación, y la mete en la cola de habitaciones.
+                // También elimina las conexiones de las salas adyacentes.
+                cells[newY][newX].GetComponent<Image>().sprite = room;
+                cells[newY][newX].type = Cell.CellType.Room;
+                createdRooms++;
+                cells[newY][newX].Number = createdRooms;
+                if(cells[newY][newX].availableDirections.Count > 0)
+                {
+                    roomsWithAvailableDirections.Add(cells[newY][newX]);
+                }
+                CheckNeighbourRoomsForConnections(cells[newY][newX]);
+                RemoveNeighbourConnections(cells[newY][newX]);
+                roomsQueue.Enqueue(cells[newY][newX]);
+
+                // Pinta y establece pasillos además de bloquear todas sus conexiones.
+                BuildCorridor(cell.pos, dist, dir);
+                created = true;
             }
-
-
-            // Pinta y establece la habitación, y la mete en la cola de habitaciones.
-            // También elimina las conexiones de las salas adyacentes.
-            cells[newY][newX].GetComponent<Image>().sprite = room;
-            cells[newY][newX].type = Cell.CellType.Room;
-            createdRooms++;
-            cells[newY][newX].Number = createdRooms;
-            if(cells[newY][newX].availableDirections.Count > 0)
-            {
-                roomsWithAvailableDirections.Add(cells[newY][newX]);
-            }
-            CheckNeighbourRoomsForConnections(cells[newY][newX]);
-            RemoveNeighbourConnections(cells[newY][newX]);
-            roomsQueue.Enqueue(cells[newY][newX]);
-
-            // Pinta y establece pasillos además de bloquear todas sus conexiones.
-            BuildCorridor(cell.pos, dist, dir);
         }
+        return created;
+    }
+
+    /// <summary>
+    /// Devuelve una distancia aleatoria dando más peso a las mayores
+    /// distancias para generar layouts más espaciados.
+    /// </summary>
+    /// <param name="maxDist">Distancia máxima del camino</param>
+    /// <returns>Una distancia</returns>
+    private int GetRandomDistanceWithWeighting(int maxDist)
+    {
+        // testing: 1/4 de probabilidad de que sea un camino corto (desde la
+        // casilla adyacente a la mitad de la máxima posible)
+        if(Random.Range(0, 4) == 0)
+        {
+            return Random.Range(1, maxDist / 2 + 1);
+        }
+        // 2/3 de probabilidad de que sea un camino largo (desde la mitad de
+        // la distancia disponible hasta la máxima)
+        else
+        {
+            return Random.Range(maxDist / 2 + 1, maxDist + 1);
+        }
+    }
+
+    /// <summary>
+    /// Devuelve una dirección aleatoria dando más peso a las direcciones que
+    /// tengan mayor posibilidad de introducir caminos más largos.
+    /// </summary>
+    /// <param name="cell">Casilla desde la que calcular direcciones</param>
+    /// <returns>Una dirección</returns>
+    private int GetRandomDirectionWithWeighting(Cell cell)
+    {
+        if (cell.availableDirections.Count == 1) return 0;
+        int totalWeights = 0;
+        // lista de pares dirección/ponderación
+        List<(Directions dir, int weight)> weightedDirs = new List<(Directions dir, int weight)>();
+        foreach(var d in cell.availableDirections)
+        {
+            /* la ponderación de cada camino es su distancia máxima, acumulando
+             * el total para que la obtención sea desde 1 hasta el total
+             */
+            var maxDist = GetMaxDistanceFromCellInDirection(cell.pos, d);
+            totalWeights += maxDist;
+            weightedDirs.Add((d, totalWeights));
+        }
+        int random = Random.Range(1, totalWeights + 1);
+        int i = 0;
+        while (i < weightedDirs.Count && random > weightedDirs[i].weight)
+        {
+            i++;
+        }
+        return i;
     }
 
     /// <summary>
